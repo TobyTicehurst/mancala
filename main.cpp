@@ -10,86 +10,6 @@
 #include "threadedEndgames.hpp"
 
 
-void endgames()
-{
-    unsigned numStones = 2;
-    while (numStones <= 12)
-    {
-        clock_t before = clock();
-        generateAllPositions(numStones);
-
-        clock_t timeElapsed = clock() - before;
-        float sec = (float)timeElapsed / (float)CLOCKS_PER_SEC;
-
-        printf("Endgames with %d stones: (%fs)\n", numStones, sec);
-        numStones++;
-    }
-}
-
-void evaluations(Position& startPosition, unsigned player)
-{
-    unsigned depth = 0;
-    while (depth < 50)
-    {
-        resetPositionStats();
-        clock_t before = clock();
-        int evaluation = minimax(startPosition, depth, -100, 100, player);
-        clock_t timeElapsed = clock() - before;
-        float sec = (float)timeElapsed / (float)CLOCKS_PER_SEC;
-
-        printf("Final evaluation at depth %d: %d (%fs)\n", depth, evaluation, sec);
-        printPositionStats();
-        depth++;
-    }
-}
-
-void evaluations()
-{
-    Position startPosition;
-    generateStartPosition(startPosition);
-
-    evaluations(startPosition, PLAYER1);
-}
-
-void endgamesThenEvaluations(unsigned endgameStonesMin, unsigned endgameStonesMax, unsigned depthMin, unsigned depthMax)
-{
-    unsigned numStones = endgameStonesMin;
-    while (numStones <= endgameStonesMax)
-    {
-        resetStats();
-        clock_t before = clock();
-        generateAllPositions(numStones);
-
-        clock_t timeElapsed = clock() - before;
-        float sec = (float)timeElapsed / (float)CLOCKS_PER_SEC;
-
-        printf("Endgames with %d stones: (%fs)\n", numStones, sec);
-
-        printStats();
-
-        Position startPosition;
-        generateStartPosition(startPosition);
-
-        unsigned depth = depthMin;
-        while (depth < depthMax)
-        {
-            resetStats();
-            clock_t beforeEval = clock();
-            int evaluation = minimax(startPosition, depth, -100, 100, 0);
-            clock_t timeElapsedEval = clock() - beforeEval;
-            float secEval = (float)timeElapsedEval / (float)CLOCKS_PER_SEC;
-
-            printf("Final evaluation at depth %d: %d (%fs)\n", depth, evaluation, secEval);
-
-            printStats();
-
-            depth++;
-        }
-
-        numStones++;
-    }
-}
-
 void makeMoves(Position& position, unsigned startPlayer, std::vector<unsigned>& moves)
 {
     Position childPosition;
@@ -224,208 +144,40 @@ void playGame(unsigned humanPlayer, unsigned depth)
     }
 }
 
-void playSelf(unsigned depth)
+// void playSelf(unsigned depth)
+// {
+//     unsigned currentPlayer = PLAYER1;
+//     Position currentPosition;
+//     generateStartPosition(currentPosition);
+
+//     printf("Depth %d: ", depth);
+
+//     while (!isGameOver(currentPosition))
+//     {
+//         unsigned move = analysePosition(currentPosition, currentPlayer, depth);
+//         bool gameOver = false;
+//         printf("%02d, ", move);
+//         Position childPosition;
+//         unsigned playAgain = generateChildPosition(currentPosition, childPosition, move, currentPlayer, gameOver);
+//         memcpy(&currentPosition, &childPosition, sizeof(currentPosition));
+//         if (!playAgain)
+//             currentPlayer = !currentPlayer;
+//     }
+//     printf("(%d)\n", currentPosition.slots[PLAYER1_GOAL] - currentPosition.slots[PLAYER2_GOAL]);
+//     fflush(stdout);
+// }
+
+// 2 clocks, 1 for wall clock time, other for sum across threads
+void timeAndCalculateEndgames(EndgameCalculator& endgameCalculator, unsigned stones, unsigned threads)
 {
-    unsigned currentPlayer = PLAYER1;
-    Position currentPosition;
-    generateStartPosition(currentPosition);
-
-    printf("Depth %d: ", depth);
-
-    while (!isGameOver(currentPosition))
-    {
-        unsigned move = analysePosition(currentPosition, currentPlayer, depth);
-        bool gameOver = false;
-        printf("%02d, ", move);
-        Position childPosition;
-        unsigned playAgain = generateChildPosition(currentPosition, childPosition, move, currentPlayer, gameOver);
-        memcpy(&currentPosition, &childPosition, sizeof(currentPosition));
-        if (!playAgain)
-            currentPlayer = !currentPlayer;
-    }
-    printf("(%d)\n", currentPosition.slots[PLAYER1_GOAL] - currentPosition.slots[PLAYER2_GOAL]);
-    fflush(stdout);
-}
-
-void playSelf()
-{
-    unsigned depth = 0;
-    while (depth < 50)
-    {
-        playSelf(depth);
-        depth++;
-    }
-}
-
-int mtdfNoMemory(Position& position, int initialGuess, unsigned depth) {
-    int bound[2] = {-100, +100}; // lower, upper
-    int beta;
-    int currentEvaluation = initialGuess;
-    do {
-        // if we have the lower bound, get the upper bound
-        beta = currentEvaluation + (currentEvaluation == bound[0]);
-        currentEvaluation = minimax(position, depth, beta - 1, beta, PLAYER1);
-
-        // currentEvaluation will be the lower bound if the true value is lower than currentEvaluation
-        // currentEvaluation will be the upper bound if the true value is higher than currentEvaluation
-        // set the corresponding bound
-        bound[currentEvaluation < beta] = currentEvaluation;
-
-    } while (bound[0] < bound[1]); // when bounds are equal we have the result
-
-    return currentEvaluation;
-}
-
-static inline unsigned getRemainingStones(const Position& position)
-{
-    return position.slots[0] + 
-           position.slots[1] + 
-           position.slots[2] + 
-           position.slots[3] + 
-           position.slots[4] + 
-           position.slots[5] +
-           position.slots[7] + 
-           position.slots[8] + 
-           position.slots[9] + 
-           position.slots[10] + 
-           position.slots[11] + 
-           position.slots[12];
-}
-
-int endgameMinimaxDepth(EndgameTable* table, Position& position, int alpha, int beta, unsigned maximizingPlayer, unsigned depth)
-{
-    Position childPosition;
-    unsigned playAgain;
-    unsigned nextMaximizingPlayer;
-    unsigned nextDepth;
-    int eval;
-
-    unsigned remainingStones = getRemainingStones(position);
-    if (remainingStones <= table->mMaxStones)
-    {
-        return table->getEvaluation(position, maximizingPlayer) + position.slots[PLAYER1_GOAL] - position.slots[PLAYER2_GOAL];
-    }
-
-    // if player 1 (high eval is good)
-    if (maximizingPlayer == PLAYER1)
-    {
-        int currentEvaluation = -100;
-        for (int i = 5; i >= 0; i--)
-        {
-            if (position.slots[i] == 0)
-                continue;
-
-            bool gameOver = false;
-            // player may get a second turn in a row (don't change depth)
-            playAgain = generateChildPosition(position, childPosition, i, maximizingPlayer, gameOver);
-            // nextMaximizingPlayer stays the same if playAgain is true and switches if playAgain is false
-            // we know maximizingPlayer at this point
-            nextMaximizingPlayer = !playAgain;
-            // next Depth reduces by 1 if playAgain is false
-            nextDepth = depth - !playAgain;
-
-            if (gameOver || (nextDepth == 0))
-                eval = childPosition.slots[PLAYER1_GOAL] - childPosition.slots[PLAYER2_GOAL];
-            else
-                eval = endgameMinimaxDepth(table, childPosition, alpha, beta, nextMaximizingPlayer, nextDepth);
-
-            // PrintPosition(childPosition);
-            // printf("Eval: %d\n", eval);
-
-            if (eval > currentEvaluation)
-                currentEvaluation = eval;
-
-            // if P2's current best option (lower is better) is better than this:
-            //  P2 would never chose this path so we can prune
-            if (beta <= eval)
-                break;
-            
-            // if eval is higher than alpha:
-            // we have found a new best move overall!
-            // update alpha
-            if (eval > alpha)
-                alpha = eval;
-        }
-        return currentEvaluation;
-    }
-    // if player 2 (low eval is good)
-    else
-    {
-        int currentEvaluation = 100;
-        for (unsigned i = 12; i >= 7; i--)
-        {
-            if (position.slots[i] == 0)
-                continue;
-
-            bool gameOver = false;
-            // player may get a second turn in a row (don't change depth)
-            playAgain = generateChildPosition(position, childPosition, i, maximizingPlayer, gameOver);
-            // nextMaximizingPlayer stays the same if playAgain is true and switches if playAgain is false
-            nextMaximizingPlayer = playAgain;
-            // next Depth reduces by 1 if playAgain is false
-            nextDepth = depth - !playAgain;
-
-            if (gameOver || (nextDepth == 0))
-                eval = childPosition.slots[PLAYER1_GOAL] - childPosition.slots[PLAYER2_GOAL];
-            else
-                eval = endgameMinimaxDepth(table, childPosition, alpha, beta, nextMaximizingPlayer, nextDepth);
-            
-            // PrintPosition(childPosition);
-            // printf("Eval: %d\n", eval);
-
-            if (eval < currentEvaluation)
-                currentEvaluation = eval;
-
-            // if P1's current best option (higher is better) is better than this:
-            //  P1 would never chose this path so we can prune
-            if (eval <= alpha)
-                break;
-
-            // if eval is less than beta:
-            // we have found a new best position overall!
-            // update beta
-            if (eval < beta)
-                beta = eval;
-
-        }
-        return currentEvaluation;
-    }
-}
-
-int mtdfNoMemoryEndgames(EndgameTable* table, Position& position, unsigned player, int initialGuess, unsigned depth) {
-    int bound[2] = {-100, +100}; // lower, upper
-    int beta;
-    int currentEvaluation = initialGuess;
-    do {
-        // if we have the lower bound, get the upper bound
-        beta = currentEvaluation + (currentEvaluation == bound[0]);
-        currentEvaluation = endgameMinimaxDepth(table, position, beta - 1, beta, player, depth);
-        // printf("currentEvaluation: %d, beta: %d\n", currentEvaluation, beta);
-
-        // currentEvaluation will be the lower bound if the true value is lower than currentEvaluation
-        // currentEvaluation will be the upper bound if the true value is higher than currentEvaluation
-        // set the corresponding bound
-        bound[currentEvaluation < beta] = currentEvaluation;
-
-    } while (bound[0] < bound[1]); // when bounds are equal we have the result
-
-    return currentEvaluation;
-}
-
-int main()
-{
-    printf("Hello World\n");
-
-    unsigned stones = 24;
-    unsigned threads = std::thread::hardware_concurrency();
-
     struct timespec start, finish;
     double elapsed;
 
     clock_gettime(CLOCK_MONOTONIC, &start);
 
     clock_t before = clock();
-    EndgameCalculator endgameCalculator;
+
+    // compute endgames
     endgameCalculator.computeAllEvaluations(stones, threads);
 
     clock_t timeElapsed = clock() - before;
@@ -437,26 +189,315 @@ int main()
     elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
 
     printf("Time with %d stones and %d threads: %fs (%fs total)\n", stones, threads, elapsed, sec);
+}
 
+void playSelf(EndgameTable* table)
+{
     Position startPosition;
     generateStartPosition(startPosition);
     std::vector<unsigned> firstMoves = {2, 5};
     makeMoves(startPosition, PLAYER1, firstMoves);
 
-    unsigned depth = 1;
-    while (depth < 50)
+    clock_t before = clock();
+    MemoryNode root;
+    int evaluation = mtdfEndgameTableNoDepth(startPosition, 8, PLAYER2, table, &root, 10);
+
+    clock_t timeElapsed = clock() - before;
+    float sec = (float)timeElapsed / (float)CLOCKS_PER_SEC;
+
+    printf("Evaluation: %d (%fs)\n", evaluation, sec);
+
+    exploreTree(&root);
+}
+
+class OppeningTableNode
+{
+public:
+    OppeningTableNode(unsigned m) :
+        move{m},
+        evaluation{255}
+    {}
+    OppeningTableNode() :
+        move{255},
+        evaluation{255}
+    {}
+    unsigned move;
+    int evaluation;
+
+    // there will be 1 or 6 of these
+    OppeningTableNode* responses;
+};
+
+// for player 2, add all moves to tree
+void addMoves(Position& position, OppeningTableNode* node, EndgameTable* table)
+{
+    Position childPosition;
+    unsigned playAgain;
+    unsigned nextMaximizingPlayer;
+
+    for (unsigned i = 7; i < 13; i++)
     {
-        clock_t before = clock();
-        int evaluation = mtdfNoMemoryEndgames(endgameCalculator.table, startPosition, PLAYER2, 8, depth);
+        if (position.slots[i] == 0)
+            continue;
+        
+        bool gameOver = false;
+        playAgain = generateChildPosition(position, childPosition, i, PLAYER2, gameOver);
 
-        clock_t timeElapsed = clock() - before;
-        float sec = (float)timeElapsed / (float)CLOCKS_PER_SEC;
+        int evaluation;
 
-        printf("Final evaluation at depth %d: %d (%fs)\n", depth, evaluation, sec);
-        depth++;
+        if (gameOver)
+            evaluation = position.slots[6] - position.slots[13];
+        else if (playAgain)
+            addMoves();
+        else
+            makeBestMove(childPosition, &node->responses[i - 7], table);
     }
+}
+
+// for player 1 find the best move
+int makeBestMove(Position& position, OppeningTableNode* node, EndgameTable* table)
+{
+    Position childPosition;
+    unsigned playAgain;
+    unsigned nextMaximizingPlayer;
+    unsigned bestMove;
+
+    int maxEval = -100;
+    for (unsigned i = 0; i < 6; i++)
+    {
+        if (position.slots[i] == 0)
+            continue;
+
+        bool gameOver = false;
+        playAgain = generateChildPosition(position, childPosition, i, PLAYER1, gameOver);
+        nextMaximizingPlayer = !playAgain;
+
+        int evaluation;
+
+        if (gameOver)
+            evaluation = position.slots[6] - position.slots[13];
+        else
+            evaluation = mtdfNoMemoryEndgameTableNoDepth(childPosition, node->evaluation, nextMaximizingPlayer, table);
+
+        if (evaluation > maxEval)
+        {
+            maxEval = evaluation;
+            bestMove = i;
+        }
+    }
+
+    node->evaluation = maxEval;
+    node->move = bestMove;
+}
+
+int getBestMove(Position& position, EndgameTable* table, int evaluationGuess, int& evaluation)
+{
+    Position childPosition;
+    unsigned playAgain;
+    unsigned nextMaximizingPlayer;
+    unsigned bestMove;
+
+    int maxEval = -100;
+    for (unsigned i = 0; i < 6; i++)
+    {
+        if (position.slots[i] == 0)
+            continue;
+
+        bool gameOver = false;
+        playAgain = generateChildPosition(position, childPosition, i, PLAYER1, gameOver);
+        nextMaximizingPlayer = !playAgain;
+
+        int evaluation;
+
+        if (gameOver)
+            evaluation = position.slots[6] - position.slots[13];
+        else
+            evaluation = mtdfNoMemoryEndgameTableNoDepth(childPosition, evaluationGuess, nextMaximizingPlayer, table);
+
+        if (evaluation > maxEval)
+        {
+            maxEval = evaluation;
+            bestMove = i;
+        }
+    }
+
+    evaluation = maxEval;
+    return bestMove;
+}
+
+void addToOpeningTable(OppeningTableNode* node, Position& position, unsigned cpuPlayer, unsigned currentPlayer, int depth, int maxDepth, EndgameTable* endgameTable)
+{
+    if (depth == 0)
+        return;
+
+    Position childPosition;
+
+    if (currentPlayer == cpuPlayer)
+    {
+        node->move = getBestMove(position, endgameTable, 8, node->evaluation);
+
+        bool gameOver;
+        bool playAgain = generateChildPosition(position, childPosition, node->move, currentPlayer, gameOver);
+        if (gameOver)
+            return;
+        
+        if (playAgain)
+        {
+            node->responses = new OppeningTableNode;
+            node = node->responses;
+            addToOpeningTable(node, childPosition, cpuPlayer, currentPlayer, depth, maxDepth, endgameTable);
+        }
+        else
+        {
+            currentPlayer = !currentPlayer;
+            addToOpeningTable(node, childPosition, cpuPlayer, currentPlayer, depth - 1, maxDepth, endgameTable);
+        }
+    }
+    else
+    {
+        node->responses = new OppeningTableNode[6];
+        
+        for (unsigned i = 0; i < 6; i++)
+        {
+            if (position.slots[i] == 0)
+                continue;
+            
+            bool gameOver;
+            bool playAgain = generateChildPosition(position, childPosition, i, currentPlayer, gameOver);
+
+            if (gameOver)
+                continue;
+
+            if (playAgain)
+            {
+                addToOpeningTable(&node->responses[i], childPosition, cpuPlayer, currentPlayer, depth, maxDepth, endgameTable);
+            }
+            else
+            {
+                currentPlayer = !currentPlayer;
+                addToOpeningTable(&node->responses[i], childPosition, cpuPlayer, currentPlayer, depth - 1, maxDepth, endgameTable);
+            }
+        }
+    }
+}
+
+void createOpeningTable(OppeningTableNode& openingTable, unsigned cpuPlayer, int maxDepth, EndgameTable* endgameTable)
+{
+    Position position;
+    Position childPosition;
+    unsigned currentPlayer = PLAYER1;
+    generateStartPosition(position);
+
+    OppeningTableNode* node = &openingTable;
+
+
+
+    int depth = 0;
+    while (depth <= maxDepth)
+    {
+        if (currentPlayer == cpuPlayer)
+        {
+            openingTable.move = getBestMove(position, endgameTable, 8, node->evaluation);
+
+            bool gameOver;
+            bool playAgain = generateChildPosition(position, childPosition, openingTable.move, currentPlayer, gameOver);
+            if (playAgain)
+            {
+                node->responses = new OppeningTableNode(255);
+                node = node->responses;
+            }
+        }
+        else
+        {
+            node->responses = new OppeningTableNode[6];
+            // need to recurse here
+        }
+    }
+
+}
+
+void playerUser(OppeningTableNode* openingTable, EndgameTable* endgameTable)
+{
+    OppeningTableNode* node = openingTable;
+    unsigned cpuPlayer = PLAYER1;
+    unsigned currentPlayer = PLAYER1;
+    Position position;
+    Position childPosition;
+    bool gameOver;
+    bool playAgain;
+    unsigned move;
+    int evaluation;
+
+    while (true)
+    {
+        PrintPosition(position);
+        
+        if (currentPlayer == cpuPlayer)
+        {
+            if (node)
+            {
+                move = node->move;
+                evaluation = node->evaluation;
+            }
+            else
+            {
+                int newEvaluation;
+                move = getBestMove(position, endgameTable, evaluation, newEvaluation);
+                evaluation = newEvaluation;
+            }
+            
+            printf("Evaluation: %d\n", evaluation);
+            fflush(stdout);
+            
+            playAgain = generateChildPosition(position, childPosition, node->move, currentPlayer, gameOver);
+            if (playAgain && node)
+                node = node->responses;
+        }
+        else
+        {
+            // gets move between 0 and 5
+            move = getUserMove();
+            playAgain = generateChildPosition(position, childPosition, move + currentPlayer * 7, currentPlayer, gameOver);
+
+            if (node)
+            {
+                if (node->responses)
+                    node = &node->responses[move];
+                else
+                    node = nullptr;
+            }
+        }
+
+        memcpy(&position, &childPosition, sizeof(position));
+        if (gameOver)
+            break;
+        if (!playAgain)
+            currentPlayer = !currentPlayer;
+    }
+}
+
+int main()
+{
+    printf("Hello World\n");
+
+    Position startPosition;
+    generateStartPosition(startPosition);
+    std::vector<unsigned> firstMoves = {2, 5, 4 + 7, 0, 3 + 7, 0, 4 + 7, 1, 2 + 7, 0, 4 + 7, 1};
+    makeMoves(startPosition, PLAYER1, firstMoves);
+
+    // EndgameCalculator endgameCalculator;
+    // unsigned stones = 26;
+    // unsigned threads = std::thread::hardware_concurrency();
+    // timeAndCalculateEndgames(endgameCalculator, stones, threads);
+
+    // playSelf(endgameCalculator.table);
 
     printf("Hello World\n");
 
     return 0;
 }
+
+
+    [05] [00] [05] [05] [05] [05]    
+[01]                             [02]
+    [05] [05] [00] [05] [05] [00]    

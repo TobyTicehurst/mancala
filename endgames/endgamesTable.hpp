@@ -10,7 +10,7 @@ struct TreeNode
         // array of N children
         TreeNode* children;
         // array of N evaluations TODO make this an array of size 2N for player 1 and player 2
-        unsigned evaluationsIndex;
+        int8_t* evaluations;
     };
 };
 

@@ -23,10 +23,10 @@ private:
     /* Pre-allocated memory to avoid constantly needing to assign new memory */
     // ints for evaluations
     int8_t* mIntArray;
-    std::atomic<unsigned> mIntArrayIndex{0};
+    size_t mIntArrayIndex;
 
     TreeNode* mTreeNodeArray;
-    std::atomic<unsigned> mTreeNodeArrayIndex{0};
+    size_t mTreeNodeArrayIndex;
 
     // maximum number of stones for which memory is assigned
     unsigned mTotalStones;

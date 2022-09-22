@@ -52,15 +52,15 @@ void EndgameTreeTable::init()
     size_t treeMemory = treeGuess(mTotalStones);
     size_t intMemory = 2 * totalNumPositions(mTotalStones);
 
-    printf("Tree Node Memory: %fGB\n", (double)treeMemory / (double)1e9);
-    printf("Evaluation Memory: %fGB\n", (double)intMemory / (double)1e9);
+    printf("Tree Node Memory: %fGB\n", (double)sizeof(mTreeNodeArray[0]) * (double)treeMemory / (double)1e9);
+    printf("Evaluation Memory: %fGB\n", (double)sizeof(mIntArray[0]) * (double)intMemory / (double)1e9);
 
-    // ensure we don't overflow the 32 bit indices
-    if (treeMemory > (1ull << 32) || intMemory > (1ull << 32))
-    {
-        printf("Memory requirement too large!\n");
-        return;
-    }
+    // // ensure we don't overflow the 32 bit indices
+    // if (treeMemory > (1ull << 32) || intMemory > (1ull << 32))
+    // {
+    //     printf("Memory requirement too large!\n");
+    //     return;
+    // }
 
     mTreeNodeArray = new TreeNode[treeMemory];
     mIntArray = new int8_t[intMemory];
@@ -70,7 +70,7 @@ void EndgameTreeTable::init()
 
 void EndgameTreeTable::setEvaluation(Position& position, int player1Evaluation, int player2Evaluation)
 {
-    unsigned index = root.
+    int8_t* evals = root.
     children[position.slots[0]].
     children[position.slots[1]].
     children[position.slots[2]].
@@ -82,15 +82,15 @@ void EndgameTreeTable::setEvaluation(Position& position, int player1Evaluation, 
     children[position.slots[9]].
     children[position.slots[10]].
     children[position.slots[11]].
-    evaluationsIndex;
+    evaluations;
 
-    mIntArray[index + position.slots[12] * 2] = player1Evaluation;
-    mIntArray[index + position.slots[12] * 2 + 1] = player2Evaluation;
+    evals[position.slots[12] * 2] = player1Evaluation;
+    evals[position.slots[12] * 2 + 1] = player2Evaluation;
 }
 
 int EndgameTreeTable::getEvaluation(Position& position, bool player)
 {
-    unsigned index = root.
+    return root.
     children[position.slots[0]].
     children[position.slots[1]].
     children[position.slots[2]].
@@ -102,9 +102,7 @@ int EndgameTreeTable::getEvaluation(Position& position, bool player)
     children[position.slots[9]].
     children[position.slots[10]].
     children[position.slots[11]].
-    evaluationsIndex;
-
-    return mIntArray[index + position.slots[12] * 2 + player];    
+    evaluations[position.slots[12] * 2 + player];
 }
 
 TreeNode* EndgameTreeTable::newTreeNodes(unsigned numNodes)
@@ -241,12 +239,12 @@ void EndgameTreeTable::buildTreePlayer2(unsigned player2MaxStones, TreeNode* nod
                         // unless all slots are 0
                         if (remainders[5] == player2MaxStones)
                         {
-                            current[4]->evaluationsIndex = mIntArrayIndex - 1;
+                            current[4]->evaluations = &mIntArray[mIntArrayIndex - 1];
                             mIntArrayIndex += ((remainders[5]) * 2);
                         }
                         else
                         {
-                            current[4]->evaluationsIndex = mIntArrayIndex;
+                            current[4]->evaluations = &mIntArray[mIntArrayIndex];
                             mIntArrayIndex += ((remainders[5] + 1) * 2);
                         }
                     }

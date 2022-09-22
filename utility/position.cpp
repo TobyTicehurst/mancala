@@ -56,10 +56,7 @@ unsigned long numPositions[48];
 
 unsigned generateChildPosition(const Position& position, Position& childPosition, unsigned move, bool player, bool& gameOver)
 {
-    // stats
-    // positionsGenerated++;
-    // if (48 - position.slots[PLAYER1_GOAL] - position.slots[PLAYER2_GOAL] < 13)
-    //     endgamePositions++;
+    gameOver = false;
 
     memcpy(childPosition.slots, position.slots, sizeof(childPosition.slots));
     unsigned numPips = childPosition.slots[move];
