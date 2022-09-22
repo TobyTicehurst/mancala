@@ -1,62 +1,9 @@
 #include "threadedEndgames.hpp"
+#include "endgamesTreeTable.hpp"
 #include "minimax.hpp"
 #include <cstdio>
 #include <thread>
 #include <cstring>
-
-#define BITS_FOR_PLAYER 1
-#define BITS_FOR_STONES 12
-
-// void EndgameTable::reserve(unsigned maxStones)
-// {
-//     this->maxStones = maxStones;
-//     unsigned power = BITS_FOR_PLAYER + BITS_FOR_STONES + maxStones;
-//     if (power > 31)
-//     {
-//         printf("Error: Overflowing an unsigned\n");
-//         exit(-1);
-//     }
-
-//     evaluations.clear();
-//     evaluations.reserve(1 << power);
-// }
-
-// void EndgameTable::evaluate(unsigned maxStones)
-// {
-//     reserve(maxStones);
-
-//     // threadsafe evals
-//     unsigned numThreads = 2;
-
-//     // evaluate all 2 stone positions first. Can then look these up
-
-//     for (unsigned numStones = 0; numStones <= maxStones; numStones++)
-//     {
-//         evaluateAll(numStones);
-
-//         // only allow lookups once we know there won't be any more writes
-//         this->maxStones = numStones;
-//     }
-// }
-
-// void EndgameTable::evaluateAll(unsigned numStones)
-// {
-//     Position position;
-//     for (unsigned player1Stones = 1; player1Stones < stonesInPlay; player1Stones++)
-//     {
-//         unsigned player2Stones = stonesInPlay - player1Stones;
-//         unsigned player1Remainder = player1Stones;
-
-//         unsigned stonesInGoals = 48 - stonesInPlay;
-//         for (unsigned stonesInGoal1 = 24 - stonesInPlay; stonesInGoal1 <= 24; stonesInGoal1++)
-//         {
-//             unsigned stonesInGoal2 = 48 - stonesInPlay - stonesInGoal1;
-//             position.slots[PLAYER1_GOAL] = stonesInGoal1;
-//             position.slots[PLAYER2_GOAL] = stonesInGoal2;
-//             generatePlayer1Slots(position, player1Stones, 0, player2Stones, stonesInPlay);
-//         }
-//     }
-// }
 
 static inline unsigned getRemainingStones(const Position& position)
 {
@@ -74,7 +21,7 @@ static inline unsigned getRemainingStones(const Position& position)
            position.slots[12];
 }
 
-int EndgameTable::endgameMinimax(Position& position, int alpha, int beta, unsigned maximizingPlayer)
+int endgameMinimax(EndgameTable* table, Position& position, int alpha, int beta, unsigned maximizingPlayer)
 {
     Position childPosition;
     unsigned playAgain;
@@ -82,10 +29,9 @@ int EndgameTable::endgameMinimax(Position& position, int alpha, int beta, unsign
     int eval;
 
     unsigned remainingStones = getRemainingStones(position);
-    if (remainingStones <= maxStones)
+    if (remainingStones <= table->mMaxStones)
     {
-        lookups++;
-        return getEvaluation(position, maximizingPlayer) + position.slots[PLAYER1_GOAL] - position.slots[PLAYER2_GOAL];
+        return table->getEvaluation(position, maximizingPlayer) + position.slots[PLAYER1_GOAL] - position.slots[PLAYER2_GOAL];
     }
 
     // if player 1 (high eval is good)
@@ -102,12 +48,12 @@ int EndgameTable::endgameMinimax(Position& position, int alpha, int beta, unsign
             playAgain = generateChildPosition(position, childPosition, i, maximizingPlayer, gameOver);
             // nextMaximizingPlayer stays the same if playAgain is true and switches if playAgain is false
             // we know maximizingPlayer at this point
-            nextMaximizingPlayer = (playAgain && maximizingPlayer) || (!playAgain && !maximizingPlayer);
+            nextMaximizingPlayer = !playAgain;
 
             if (gameOver)
                 eval = childPosition.slots[PLAYER1_GOAL] - childPosition.slots[PLAYER2_GOAL];
             else
-                eval = endgameMinimax(childPosition, alpha, beta, nextMaximizingPlayer);
+                eval = endgameMinimax(table, childPosition, alpha, beta, nextMaximizingPlayer);
 
             if (eval > currentEvaluation)
                 currentEvaluation = eval;
@@ -122,7 +68,6 @@ int EndgameTable::endgameMinimax(Position& position, int alpha, int beta, unsign
             // update alpha
             if (eval > alpha)
                 alpha = eval;
-            
         }
         return currentEvaluation;
     }
@@ -139,14 +84,14 @@ int EndgameTable::endgameMinimax(Position& position, int alpha, int beta, unsign
             // player may get a second turn in a row (don't change depth)
             playAgain = generateChildPosition(position, childPosition, i, maximizingPlayer, gameOver);
             // nextMaximizingPlayer stays the same if playAgain is true and switches if playAgain is false
-            nextMaximizingPlayer = (playAgain && maximizingPlayer) || (!playAgain && !maximizingPlayer);
+            nextMaximizingPlayer = playAgain;
 
             if (gameOver)
             {
                 eval = childPosition.slots[PLAYER1_GOAL] - childPosition.slots[PLAYER2_GOAL];
             }
             else
-                eval = endgameMinimax(childPosition, alpha, beta, nextMaximizingPlayer);
+                eval = endgameMinimax(table, childPosition, alpha, beta, nextMaximizingPlayer);
             
             if (eval < currentEvaluation)
                 currentEvaluation = eval;
@@ -167,7 +112,7 @@ int EndgameTable::endgameMinimax(Position& position, int alpha, int beta, unsign
     }
 }
 
-void EndgameTable::player1(unsigned stones)
+void EndgameCalculator::player1(unsigned stones)
 {
     Position position;
     memset(&position, 0, sizeof(position));
@@ -215,97 +160,41 @@ void EndgameTable::player1(unsigned stones)
     }
 }
 
-static void doubleIndexFromPosition(Position& position, unsigned& player1Index, unsigned& player2Index)
+void EndgameCalculator::player2(unsigned stones, Position& position)
 {
-    player1Index = 2;
-
-    player1Index <<= position.slots[12];
-    player1Index += 1;
-
-    // Playing slots (not goals)
-    for (size_t i = 11; i > 6; i--)
-    {
-        player1Index <<= position.slots[i] + 1;
-        player1Index += 1;
-    }
-    for (size_t i = 5; i > 0; i--)
-    {
-        player1Index <<= position.slots[i] + 1;
-        player1Index += 1;
-    }
-    player1Index <<= position.slots[0];
-
-    player1Index <<= 1;
-
-    player2Index = player1Index;
-    player2Index |= 0x1;
-}
-
-static unsigned indexFromPosition(Position& position, unsigned player)
-{
-    unsigned index = 2;
-
-    index <<= position.slots[12];
-    index += 1;
-
-    // Playing slots (not goals)
-    for (size_t i = 11; i > 6; i--)
-    {
-        index <<= position.slots[i] + 1;
-        index += 1;
-    }
-    for (size_t i = 5; i > 0; i--)
-    {
-        index <<= position.slots[i] + 1;
-        index += 1;
-    }
-    index <<= position.slots[0];
-
-    // whos turn is it?
-    index <<= 1;
-    index |= player;
-
-    return index;
-}
-
-void EndgameTable::player2(unsigned stones, Position& position)
-{
-    unsigned remainders[6];
+    unsigned remainders[5];
+    int indices[5];
     // slot 7
     remainders[0] = stones;
-    for (position.slots[7] = 0; position.slots[7] <= remainders[0]; position.slots[7]++)
+    for (indices[0] = remainders[0]; indices[0] >= 0; indices[0]--)
     {
+        position.slots[7] = indices[0];
         // slot 8
         remainders[1] = remainders[0] - position.slots[7];
-        for (position.slots[8] = 0; position.slots[8] <= remainders[1]; position.slots[8]++)
+        for (indices[1] = remainders[1]; indices[1] >= 0; indices[1]--)
         {
+            position.slots[8] = indices[1];
             // slot 9
             remainders[2] = remainders[1] - position.slots[8];
-            for (position.slots[9] = 0; position.slots[9] <= remainders[2]; position.slots[9]++)
+            for (indices[2] = remainders[2]; indices[2] >= 0; indices[2]--)
             {
+                position.slots[9] = indices[2];
                 // slot 10
                 remainders[3] = remainders[2] - position.slots[9];
-                for (position.slots[10] = 0; position.slots[10] <= remainders[3]; position.slots[10]++)
+                for (indices[3] = remainders[3]; indices[3] >= 0; indices[3]--)
                 {
+                    position.slots[10] = indices[3];
                     // slot 11
                     remainders[4] = remainders[3] - position.slots[10];
-                    for (position.slots[11] = 0; position.slots[11] <= remainders[4]; position.slots[11]++)
+                    for (indices[4] = remainders[4]; indices[4] >= 0; indices[4]--)
                     {
+                        position.slots[11] = indices[4];
                         // slot 12
                         position.slots[12] = remainders[4] - position.slots[11];
                         num++;
-                        int player1Evaluation = endgameMinimax(position, -100, 100, 0);
-                        int player2Evaluation = endgameMinimax(position, -100, 100, 1);
-                        setEvaluation(position, 0, player1Evaluation);
-                        setEvaluation(position, 1, player2Evaluation);
-
-                        bool print = false;//(position.slots[0] == 7 && position.slots[12] == 1);
-
-                        if (print)
-                        {
-                            printf("Eval: %d, %d\n", player1Evaluation, player2Evaluation);
-                            PrintPosition(position);
-                        }
+                        int player1Evaluation = endgameMinimax(table, position, -100, 100, 0);
+                        int player2Evaluation = endgameMinimax(table, position, -100, 100, 1);
+                        table->setEvaluation(position, player1Evaluation, player2Evaluation);
                     }
                 }
             }
@@ -313,37 +202,13 @@ void EndgameTable::player2(unsigned stones, Position& position)
     }
 }
 
-void EndgameTable::addToQueue(unsigned player2Stones, Position& position)
+void EndgameCalculator::addToQueue(unsigned player2Stones, Position& position)
 {
     // printf("Remainder: %d\n", player2Stones);
     // PrintPosition(position);
     memcpy(&jobs[head].position, &position, sizeof(position));
     jobs[head].remainingStones = player2Stones;
     head++;
-    if (head > numJobs)
-        printf("Error, too many jobs: %d/%lld\n", (unsigned)head, numJobs);
-}
-
-// static inline unsigned numHalfPositions(unsigned n)
-// {
-//     // Stars and bars with n Stars (Stones) and 5 bars (6 Slots)
-//     // (n + 5)!/(n!*5!)
-//     return (n + 5) * (n + 4) * (n + 3) * (n + 2) * (n + 1) / 120;
-// }
-
-static inline unsigned fact(unsigned x)
-{
-    unsigned ret = 1;
-    for (unsigned i = 2; i <= x; i++)
-    {
-        ret *= i;
-    }
-    return ret;
-}
-
-static inline unsigned starsAndBars(unsigned slots, unsigned stones)
-{
-    return fact(slots + stones - 1) / (fact(stones) * fact(slots - 1));
 }
 
 // number of ways to arrange 6 of the slots and 1 remainder
@@ -351,7 +216,6 @@ static inline unsigned long long numHalfPositions(unsigned n)
 {
     // Stars and bars with n Stars (Stones) and 5 bars (6 Slots)
     // (n + 5)!/(n!*5!)
-    //return (fact(n + 6) / (fact(n) * fact(6))) - (fact(n + 5) / (fact(n) * fact(5))) - 1;
 
     return 
     ((n + 6ull) * (n + 5ull) * (n + 4ull) * (n + 3ull) * (n + 2ull) * (n + 1ull) / (6 * 5 * 4 * 3 * 2)) - 
@@ -370,18 +234,18 @@ static inline unsigned long long numPositions(unsigned long long n)
     (unsigned long long)(2 * (n + 5) * (n + 4) * (n + 3) * (n + 2) * (n + 1) / (5 * 4 * 3 * 2));
 }
 
-void EndgameTable::computeAllEvaluations(unsigned totalStones, unsigned threadCount)
+void EndgameCalculator::computeAllEvaluations(unsigned totalStones, unsigned threadCount)
 {
-    unsigned long long totalPositions = 0;
-    unsigned power = BITS_FOR_PLAYER + BITS_FOR_STONES + totalStones;
-    if (power > 31)
-    {
-        printf("Error: Overflowing an unsigned\n");
-        exit(-1);
-    }
+    table = new EndgameTreeTable(totalStones);
 
-    evaluations.clear();
-    evaluations.reserve(1 << power);
+    // go through every position and assign it a TreeNode
+    table->init();
+
+    printf("Analysing...\n");
+    printf("Num threads: %d\n", threadCount);
+    
+    printf("Num stones (%d): 1", totalStones);
+    unsigned long long totalPositions = 0;
 
     for (unsigned i = 2; i <= totalStones; i++)
     {
@@ -392,27 +256,23 @@ void EndgameTable::computeAllEvaluations(unsigned totalStones, unsigned threadCo
         num = 0;
         numJobs = 0;
         computeEvaluations(i, threadCount);
-        maxStones = i;
+        table->mMaxStones = i;
         totalPositions += numPositions(i);
     }
+    printf("\n");
 
-    printf("Lookups: %d\n", (unsigned)lookups);
-    printf("totalPositions: %lld\n", totalPositions);
+    //printf("Lookups: %lld\n", (unsigned long long)lookups);
+    //printf("totalPositions: %lld\n", totalPositions);
 }
 
-void EndgameTable::computeEvaluations(unsigned numStones, unsigned threadCount)
+void EndgameCalculator::computeEvaluations(unsigned numStones, unsigned threadCount)
 {
-    // printf("test1 = %d\n", numHalfPositions(3));
-    // printf("test2 = %d\n", starsAndBars(7, 3));
-    // printf("test3 = %d\n", starsAndBars(6, 3));
-
-    printf("Num threads: %d\n", threadCount);
-
     // numStones - 1 as each side need at least 1 stone
     numJobs = numHalfPositions(numStones);
-    printf("Num jobs: %lld\n", numJobs);
+    //printf("Num jobs: %lld\n", numJobs);
 
-    printf("Stones: %u\n", numStones);
+    printf(", %u", numStones);
+    fflush(stdout);
 
     std::vector<std::thread> threads;
     threads.reserve(threadCount);
@@ -420,7 +280,7 @@ void EndgameTable::computeEvaluations(unsigned numStones, unsigned threadCount)
     for (size_t i = 0; i < threadCount; i++)
     {
         name = std::to_string(i);
-        threads.emplace_back(&EndgameTable::threadLoopTest, this, name);
+        threads.emplace_back(&EndgameCalculator::threadLoopTest, this, name);
     }
 
     jobs.reserve(numJobs);
@@ -431,14 +291,14 @@ void EndgameTable::computeEvaluations(unsigned numStones, unsigned threadCount)
         thread.join();
     }
 
-    printf("Job sum check; %lld/%lld\n", (unsigned long long)sum, (numJobs * (numJobs - 1ull)) / 2ull);
+    // printf("Job sum check; %lld/%lld\n", (unsigned long long)sum, (numJobs * (numJobs - 1ull)) / 2ull);
 
-    unsigned numPos = numPositions(numStones);
-    unsigned total = num;
-    printf("Num positions check: %u/%u\n", numPos, total);
+    // unsigned numPos = numPositions(numStones);
+    // unsigned total = num;
+    // printf("Num positions check: %u/%u\n", numPos, total);
 }
 
-void EndgameTable::threadLoopTest(std::string name)
+void EndgameCalculator::threadLoopTest(std::string name)
 {
     //printf("Start: %s\n", name.c_str());
     //std::this_thread::sleep_for(std::chrono::milliseconds(1000000));
@@ -463,61 +323,4 @@ void EndgameTable::threadLoopTest(std::string name)
         if (jobs[current].remainingStones)
             player2(jobs[current].remainingStones, jobs[current].position);
     }
-}
-
-unsigned EndgameTable::getMaxStones()
-{
-    return maxStones;
-}
-
-int EndgameTable::setEvaluation(Position& position, bool player, int evaluation)
-{
-    unsigned index = indexFromPosition(position, player);
-    evaluations[index] = evaluation;
-}
-
-int EndgameTable::getEvaluation(Position& position, bool player)
-{
-    unsigned index = indexFromPosition(position, player);
-    return evaluations[index];
-}
-
-struct TreeNode
-{
-    union
-    {
-        TreeNode* children[12];
-        int* evaluations[12];
-    };
-};
-
-// assumes tree is not null
-int EndgameTable::setEvaluation2(Position& position, bool player, int evaluation)
-{
-    TreeNode* node = treeArray[
-        position.slots[0] +
-        position.slots[1] * maxStones +
-        position.slots[2] * maxStones * maxStones +
-        position.slots[3] * maxStones * maxStones * maxStones +
-        position.slots[4] * maxStones * maxStones * maxStones * maxStones +
-        position.slots[5] * maxStones * maxStones * maxStones * maxStones * maxStones
-    ];
-
-    for (size_t i = 7; i < 12; i++)
-    {
-        node = node->children[position.slots[i]];
-        if (node == NULL)
-        {
-            node = new TreeNode;
-            memset(node, 0, sizeof(*node));
-        }
-    }
-
-    if (node == NULL)
-    {
-        node = new TreeNode;
-    }
-
-    int* evalPtr = node->evaluations[position.slots[12]];
-    evalPtr = new int(evaluation);
 }

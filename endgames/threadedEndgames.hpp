@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include "position.hpp"
+#include "endgamesTable.hpp"
 
 struct Job
 {
@@ -10,32 +11,20 @@ struct Job
     unsigned remainingStones;
 };
 
-class EndgameTable
+class EndgameCalculator
 {
 public:
-    // void evaluate(unsigned maxStones);
-    // void lookup(Position& position);
-    
     void computeEvaluations(unsigned numStones, unsigned threadCount);
     void computeAllEvaluations(unsigned maxStones, unsigned threadCount);
-    void threadLoopTest(std::string name);
+ 
+private:
     void addToQueue(unsigned player2Stones, Position& position);
+
+    // TODO rename
     void player1(unsigned stones);
     void player2(unsigned stones, Position& position);
-    unsigned getMaxStones();
-    int endgameMinimax(Position& position, int alpha, int beta, unsigned maximizingPlayer);
-
-    int setEvaluation(Position& position, bool player, int evaluation);
-    int getEvaluation(Position& position, bool player);
-private:
-
-    /* 
-     * If positive, evaluation is the number of moves till player 1 wins
-     * If negative, evaluation is the number of moves till player 2 wins
-     * If 0, position is a draw
-     * If UNKNOWN, position hasn't been evaluated (should never happen for stones <= maxStones)
-     */
-    std::vector<int8_t> evaluations;
+    
+    void threadLoopTest(std::string name);
 
     /*
      * Tail starts as 0 and Head starts as 0
@@ -50,10 +39,8 @@ private:
     std::atomic<unsigned> tail{0};
     std::atomic<unsigned long long> sum{0};
     std::atomic<unsigned> num{0};
-    std::atomic<unsigned> lookups{0};
     unsigned long long numJobs;
-
-    unsigned maxStones;
-
-    void* tree;
+public:
+    //
+    EndgameTable* table;
 };
