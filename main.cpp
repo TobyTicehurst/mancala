@@ -191,24 +191,24 @@ void timeAndCalculateEndgames(EndgameCalculator& endgameCalculator, unsigned sto
     printf("Time with %d stones and %d threads: %fs (%fs total)\n", stones, threads, elapsed, sec);
 }
 
-void playSelf(EndgameTable* table)
-{
-    Position startPosition;
-    generateStartPosition(startPosition);
-    std::vector<unsigned> firstMoves = {2, 5};
-    makeMoves(startPosition, PLAYER1, firstMoves);
+// void playSelf(EndgameTable* table)
+// {
+//     Position startPosition;
+//     generateStartPosition(startPosition);
+//     std::vector<unsigned> firstMoves = {2, 5};
+//     makeMoves(startPosition, PLAYER1, firstMoves);
 
-    clock_t before = clock();
-    MemoryNode root;
-    int evaluation = mtdfEndgameTableNoDepth(startPosition, 8, PLAYER2, table, &root, 10);
+//     clock_t before = clock();
+//     MemoryNode root;
+//     int evaluation = mtdfEndgameTableNoDepth(startPosition, 8, PLAYER2, table, &root, 10);
 
-    clock_t timeElapsed = clock() - before;
-    float sec = (float)timeElapsed / (float)CLOCKS_PER_SEC;
+//     clock_t timeElapsed = clock() - before;
+//     float sec = (float)timeElapsed / (float)CLOCKS_PER_SEC;
 
-    printf("Evaluation: %d (%fs)\n", evaluation, sec);
+//     printf("Evaluation: %d (%fs)\n", evaluation, sec);
 
-    exploreTree(&root);
-}
+//     exploreTree(&root);
+// }
 
 class OppeningTableNode
 {
@@ -223,36 +223,37 @@ public:
     {}
     unsigned move;
     int evaluation;
+    unsigned size;
 
     // there will be 1 or 6 of these
     OppeningTableNode* responses;
 };
 
-// for player 2, add all moves to tree
-void addMoves(Position& position, OppeningTableNode* node, EndgameTable* table)
-{
-    Position childPosition;
-    unsigned playAgain;
-    unsigned nextMaximizingPlayer;
+// // for player 2, add all moves to tree
+// void addMoves(Position& position, OppeningTableNode* node, EndgameTable* table)
+// {
+//     Position childPosition;
+//     unsigned playAgain;
+//     unsigned nextMaximizingPlayer;
 
-    for (unsigned i = 7; i < 13; i++)
-    {
-        if (position.slots[i] == 0)
-            continue;
+//     for (unsigned i = 7; i < 13; i++)
+//     {
+//         if (position.slots[i] == 0)
+//             continue;
         
-        bool gameOver = false;
-        playAgain = generateChildPosition(position, childPosition, i, PLAYER2, gameOver);
+//         bool gameOver = false;
+//         playAgain = generateChildPosition(position, childPosition, i, PLAYER2, gameOver);
 
-        int evaluation;
+//         int evaluation;
 
-        if (gameOver)
-            evaluation = position.slots[6] - position.slots[13];
-        else if (playAgain)
-            addMoves();
-        else
-            makeBestMove(childPosition, &node->responses[i - 7], table);
-    }
-}
+//         if (gameOver)
+//             evaluation = position.slots[6] - position.slots[13];
+//         else if (playAgain)
+//             addMoves();
+//         else
+//             makeBestMove(childPosition, &node->responses[i - 7], table);
+//     }
+// }
 
 // for player 1 find the best move
 int makeBestMove(Position& position, OppeningTableNode* node, EndgameTable* table)
@@ -290,6 +291,26 @@ int makeBestMove(Position& position, OppeningTableNode* node, EndgameTable* tabl
     node->move = bestMove;
 }
 
+void printOpeningTable(OppeningTableNode* node, unsigned depth)
+{
+    if (node == nullptr)
+        return;
+
+    for (unsigned i = 0; i < depth; i++)
+    {
+        printf("\t");
+    }
+    printf("{\n");
+    printf("\tMove: %d, Evaluation: %d\n", node->move, node->evaluation);
+
+    for (unsigned i = 0; i < node->size; i++)
+    {
+        if (node && node->responses)
+            printOpeningTable(&node->responses[i], depth + 1);
+    }
+    printf("}\n");
+}
+
 int getBestMove(Position& position, EndgameTable* table, int evaluationGuess, int& evaluation)
 {
     Position childPosition;
@@ -305,6 +326,10 @@ int getBestMove(Position& position, EndgameTable* table, int evaluationGuess, in
 
         bool gameOver = false;
         playAgain = generateChildPosition(position, childPosition, i, PLAYER1, gameOver);
+
+        printf("Exploring position:\n");
+        PrintPosition(childPosition);
+
         nextMaximizingPlayer = !playAgain;
 
         int evaluation;
@@ -325,10 +350,12 @@ int getBestMove(Position& position, EndgameTable* table, int evaluationGuess, in
     return bestMove;
 }
 
-void addToOpeningTable(OppeningTableNode* node, Position& position, unsigned cpuPlayer, unsigned currentPlayer, int depth, int maxDepth, EndgameTable* endgameTable)
+void addToOpeningTable(OppeningTableNode* node, Position& position, unsigned cpuPlayer, unsigned currentPlayer, int depth, EndgameTable* endgameTable)
 {
     if (depth == 0)
         return;
+    
+    printf("Opening table, depth: %d\n", depth);
 
     Position childPosition;
 
@@ -344,18 +371,20 @@ void addToOpeningTable(OppeningTableNode* node, Position& position, unsigned cpu
         if (playAgain)
         {
             node->responses = new OppeningTableNode;
+            node->size = 1;
             node = node->responses;
-            addToOpeningTable(node, childPosition, cpuPlayer, currentPlayer, depth, maxDepth, endgameTable);
+            addToOpeningTable(node, childPosition, cpuPlayer, currentPlayer, depth, endgameTable);
         }
         else
         {
             currentPlayer = !currentPlayer;
-            addToOpeningTable(node, childPosition, cpuPlayer, currentPlayer, depth - 1, maxDepth, endgameTable);
+            addToOpeningTable(node, childPosition, cpuPlayer, currentPlayer, depth - 1, endgameTable);
         }
     }
     else
     {
         node->responses = new OppeningTableNode[6];
+        node->size = 6;
         
         for (unsigned i = 0; i < 6; i++)
         {
@@ -370,125 +399,131 @@ void addToOpeningTable(OppeningTableNode* node, Position& position, unsigned cpu
 
             if (playAgain)
             {
-                addToOpeningTable(&node->responses[i], childPosition, cpuPlayer, currentPlayer, depth, maxDepth, endgameTable);
+                addToOpeningTable(&node->responses[i], childPosition, cpuPlayer, currentPlayer, depth, endgameTable);
             }
             else
             {
                 currentPlayer = !currentPlayer;
-                addToOpeningTable(&node->responses[i], childPosition, cpuPlayer, currentPlayer, depth - 1, maxDepth, endgameTable);
+                addToOpeningTable(&node->responses[i], childPosition, cpuPlayer, currentPlayer, depth - 1, endgameTable);
             }
         }
     }
 }
 
-void createOpeningTable(OppeningTableNode& openingTable, unsigned cpuPlayer, int maxDepth, EndgameTable* endgameTable)
-{
-    Position position;
-    Position childPosition;
-    unsigned currentPlayer = PLAYER1;
-    generateStartPosition(position);
+// void createOpeningTable(OppeningTableNode& openingTable, unsigned cpuPlayer, int maxDepth, EndgameTable* endgameTable)
+// {
+//     Position position;
+//     Position childPosition;
+//     unsigned currentPlayer = PLAYER1;
+//     generateStartPosition(position);
 
-    OppeningTableNode* node = &openingTable;
+//     OppeningTableNode* node = &openingTable;
 
+//     int depth = 0;
+//     while (depth <= maxDepth)
+//     {
+//         if (currentPlayer == cpuPlayer)
+//         {
+//             openingTable.move = getBestMove(position, endgameTable, 8, node->evaluation);
 
+//             bool gameOver;
+//             bool playAgain = generateChildPosition(position, childPosition, openingTable.move, currentPlayer, gameOver);
+//             if (playAgain)
+//             {
+//                 node->responses = new OppeningTableNode(255);
+//                 node = node->responses;
+//             }
+//         }
+//         else
+//         {
+//             node->responses = new OppeningTableNode[6];
+//             // need to recurse here
+//         }
+//     }
 
-    int depth = 0;
-    while (depth <= maxDepth)
-    {
-        if (currentPlayer == cpuPlayer)
-        {
-            openingTable.move = getBestMove(position, endgameTable, 8, node->evaluation);
+// }
 
-            bool gameOver;
-            bool playAgain = generateChildPosition(position, childPosition, openingTable.move, currentPlayer, gameOver);
-            if (playAgain)
-            {
-                node->responses = new OppeningTableNode(255);
-                node = node->responses;
-            }
-        }
-        else
-        {
-            node->responses = new OppeningTableNode[6];
-            // need to recurse here
-        }
-    }
+// void playerUser(OppeningTableNode* openingTable, EndgameTable* endgameTable)
+// {
+//     OppeningTableNode* node = openingTable;
+//     unsigned cpuPlayer = PLAYER1;
+//     unsigned currentPlayer = PLAYER1;
+//     Position position;
+//     Position childPosition;
+//     bool gameOver;
+//     bool playAgain;
+//     unsigned move;
+//     int evaluation;
 
-}
-
-void playerUser(OppeningTableNode* openingTable, EndgameTable* endgameTable)
-{
-    OppeningTableNode* node = openingTable;
-    unsigned cpuPlayer = PLAYER1;
-    unsigned currentPlayer = PLAYER1;
-    Position position;
-    Position childPosition;
-    bool gameOver;
-    bool playAgain;
-    unsigned move;
-    int evaluation;
-
-    while (true)
-    {
-        PrintPosition(position);
+//     while (true)
+//     {
+//         PrintPosition(position);
         
-        if (currentPlayer == cpuPlayer)
-        {
-            if (node)
-            {
-                move = node->move;
-                evaluation = node->evaluation;
-            }
-            else
-            {
-                int newEvaluation;
-                move = getBestMove(position, endgameTable, evaluation, newEvaluation);
-                evaluation = newEvaluation;
-            }
+//         if (currentPlayer == cpuPlayer)
+//         {
+//             if (node)
+//             {
+//                 move = node->move;
+//                 evaluation = node->evaluation;
+//             }
+//             else
+//             {
+//                 int newEvaluation;
+//                 move = getBestMove(position, endgameTable, evaluation, newEvaluation);
+//                 evaluation = newEvaluation;
+//             }
             
-            printf("Evaluation: %d\n", evaluation);
-            fflush(stdout);
+//             printf("Evaluation: %d\n", evaluation);
+//             fflush(stdout);
             
-            playAgain = generateChildPosition(position, childPosition, node->move, currentPlayer, gameOver);
-            if (playAgain && node)
-                node = node->responses;
-        }
-        else
-        {
-            // gets move between 0 and 5
-            move = getUserMove();
-            playAgain = generateChildPosition(position, childPosition, move + currentPlayer * 7, currentPlayer, gameOver);
+//             playAgain = generateChildPosition(position, childPosition, node->move, currentPlayer, gameOver);
+//             if (playAgain && node)
+//                 node = node->responses;
+//         }
+//         else
+//         {
+//             // gets move between 0 and 5
+//             move = getUserMove();
+//             playAgain = generateChildPosition(position, childPosition, move + currentPlayer * 7, currentPlayer, gameOver);
 
-            if (node)
-            {
-                if (node->responses)
-                    node = &node->responses[move];
-                else
-                    node = nullptr;
-            }
-        }
+//             if (node)
+//             {
+//                 if (node->responses)
+//                     node = &node->responses[move];
+//                 else
+//                     node = nullptr;
+//             }
+//         }
 
-        memcpy(&position, &childPosition, sizeof(position));
-        if (gameOver)
-            break;
-        if (!playAgain)
-            currentPlayer = !currentPlayer;
-    }
-}
+//         memcpy(&position, &childPosition, sizeof(position));
+//         if (gameOver)
+//             break;
+//         if (!playAgain)
+//             currentPlayer = !currentPlayer;
+//     }
+// }
 
 int main()
 {
     printf("Hello World\n");
 
+
+
+    // std::vector<unsigned> firstMoves = {2, 5, 4 + 7, 0, 3 + 7, 0, 4 + 7, 1, 2 + 7, 0, 4 + 7, 1};
+    // makeMoves(startPosition, PLAYER1, firstMoves);
+
+    EndgameCalculator endgameCalculator;
+    unsigned stones = 26;
+    unsigned threads = std::thread::hardware_concurrency();
+    timeAndCalculateEndgames(endgameCalculator, stones, threads);
+
     Position startPosition;
     generateStartPosition(startPosition);
-    std::vector<unsigned> firstMoves = {2, 5, 4 + 7, 0, 3 + 7, 0, 4 + 7, 1, 2 + 7, 0, 4 + 7, 1};
-    makeMoves(startPosition, PLAYER1, firstMoves);
 
-    // EndgameCalculator endgameCalculator;
-    // unsigned stones = 26;
-    // unsigned threads = std::thread::hardware_concurrency();
-    // timeAndCalculateEndgames(endgameCalculator, stones, threads);
+    OppeningTableNode openingTable;
+    addToOpeningTable(&openingTable, startPosition, PLAYER1, PLAYER1, 1, endgameCalculator.table);
+
+    printOpeningTable(&openingTable, 0);
 
     // playSelf(endgameCalculator.table);
 
@@ -496,8 +531,3 @@ int main()
 
     return 0;
 }
-
-
-    [05] [00] [05] [05] [05] [05]    
-[01]                             [02]
-    [05] [05] [00] [05] [05] [00]    
